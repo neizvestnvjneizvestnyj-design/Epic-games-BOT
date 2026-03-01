@@ -2,7 +2,8 @@ import os
 import discord
 from discord.ext import commands, tasks
 import datetime
-from datetime import import UTC
+# Am corectat linia de mai jos:
+from datetime import timezone 
 from flask import Flask
 from threading import Thread
 from epicstore_api import EpicGamesStoreAPI
@@ -15,6 +16,7 @@ def main():
     return "Botul este online!"
 
 def run():
+    # Render folosește de obicei portul 10000, dar 8080 e ok dacă e configurat
     app.run(host="0.0.0.0", port=8080)
 
 def keep_alive():
@@ -33,7 +35,6 @@ intents.members = True
 
 bot = commands.Bot(command_prefix="!", intents=intents)
 
-# Listă temporară pentru a nu repeta anunțurile (se resetează la restart)
 sent_games = []
 
 @bot.event
@@ -42,11 +43,9 @@ async def on_ready():
     if not check_epic_games.is_running():
         check_epic_games.start()
 
-# --- TASK AUTOMAT: VERIFICĂ EPIC GAMES ---
 @tasks.loop(minutes=60)
 async def check_epic_games():
     channel = bot.get_channel(ANNOUNCE_CH_ID)
-    
     if not channel:
         return
 
@@ -55,7 +54,6 @@ async def check_epic_games():
     try:
         data = api.get_free_games()['data']['Catalog']['searchStore']['elements']
         for game in data:
-            # Extragere oferte promoționale
             promotions = game.get('promotions')
             if not promotions:
                 continue
@@ -66,11 +64,9 @@ async def check_epic_games():
 
             offer = offer_list[0]['promotionalOffers'][0]
             
-            # Verificăm dacă reducerea este de 100% (gratis)
-            # Notă: În screenshot apare o verificare a discountului
+            # Verificăm dacă prețul e 0
             if offer['discountSetting']['discountPercentage'] == 0:
                 game_id = game['id']
-                
                 if game_id in sent_games:
                     continue
 
@@ -79,14 +75,13 @@ async def check_epic_games():
                 slug = game.get('productSlug') or game.get('urlSlug')
                 expiry_date = offer['endDate']
                 
-                # Formatare dată expirare
                 clean_date = expiry_date.replace('T', ' ').replace('Z', '')
 
                 embed = discord.Embed(
                     title=f"🎮 Joc Gratuit: {title}",
                     url=f"https://store.epicgames.com/p/{slug}",
                     color=discord.Color.blue(),
-                    timestamp=datetime.datetime.now()
+                    timestamp=datetime.datetime.now(datetime.timezone.utc)
                 )
                 
                 embed.set_image(url=image)
@@ -97,20 +92,15 @@ async def check_epic_games():
                 )
                 embed.set_footer(text="Epic Games Tracker")
 
-                # Trimitem mesajul cu TAG pentru tine
                 await channel.send(content=f"🔔 <@{MY_USER_ID}>, a apărut un joc gratis nou!", embed=embed)
-                
                 sent_games.append(game_id)
 
     except Exception as e:
         print(f"Eroare: {e}")
 
-# --- LOGURI PENTRU MESAJE ȘTERSE ---
 @bot.event
 async def on_message_delete(message):
-    # Logica pentru mesaje șterse ar urma aici conform screenshot-ului
     pass
 
 keep_alive()
 bot.run(TOKEN)
-      
